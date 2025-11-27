@@ -94,6 +94,24 @@ class Session:
                 print(f"Error loading red component image or wrong colour value. Defaulting to black: {e}")
                 r_image = Image.new("RGB", (self.target_size[0], self.target_size[1]), color=(0, 0, 0))
             return r_image
+    
+    def save_image(self, image: Image, file_path: str):
+        file_path = p.Path(file_path)
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        if file_path.suffix.lower() == '.vtf':
+            try:
+                vtf_image = vtf.VTF(width=image.width, height=image.height, frames=1)
+                vtf_image.get().copy_from(image.tobytes())
+                with open(file_path, 'wb') as f:
+                    vtf_image.write(f)
+            except Exception as e:
+                print(f"Error saving VTF image: {e}")
+        else:
+            try:
+                image.save(file_path)
+            except Exception as e:
+                print(f"Error saving image: {e}")
+        print(f"Saved output image to {file_path}")
 
 
 @app.command()
@@ -129,6 +147,8 @@ def bake_blendmodulate(
     red: str = typer.Option("#000000", "-r", "--red", help="Red component color or image path"),
     # output_path: str = typer.Option("output.png", "-o", "--output", help="Output image path"),
     target_size: Union[None, str] = typer.Option(None, "-s", "--size", help="Target size as WIDTHxHEIGHT. None defaults to size of the top image."),
+    blend_mode: str = typer.Option("substract", "-m", "--mode", help="Blend mode to use."),
+    output_path: Union[None, str] = typer.Option(None, "-o", "--output", help="Output image path. If not specified, the image will not be saved."),
     alpha: float = typer.Option(0.5, "-a", "--alpha", help="Alpha value for blending."),
     input_black: int = typer.Option(0, help="Input black level (0-255)."),
     input_white: int = typer.Option(255, help="Input white level (0-255)."),
@@ -151,40 +171,58 @@ def bake_blendmodulate(
     print(session.img_top.size, session.img_bottom.size, session.r_component.size)
     print(session.img_top.mode, session.img_bottom.mode, session.r_component.mode)
 
-    fbo = session.gl.framebuffer(
-        color_attachments=[session.gl.texture((session.target_size[0], session.target_size[1]), 3)]
-    )
-    fbo.use()
-    shader_program = session.gl.program(
-        vertex_shader=sh_blmod.Shader.vertex_shader,
-        fragment_shader=sh_blmod.Shader.fragment_shader
-    )
-    texture1 = session.gl.texture(top_img.size, 3, top_img.tobytes())
-    texture2 = session.gl.texture(bottom_img.size, 3, bottom_img.tobytes())
-    texture3 = session.gl.texture(r_image.size, 3, r_image.tobytes())
-    texture1.use(location=0)
-    texture2.use(location=1)
-    texture3.use(location=2)
-    shader_program[sh_blmod.Shader.variables.topTexture] = 0
-    shader_program[sh_blmod.Shader.variables.bottomTexture] = 1
-    shader_program[sh_blmod.Shader.variables.rComponent] = 2
-    shader_program[sh_blmod.Shader.variables.alpha] = alpha
-    shader_program[sh_blmod.Shader.variables.input_black] = input_black / 255.0
-    shader_program[sh_blmod.Shader.variables.input_white] = input_white / 255.0
-    shader_program[sh_blmod.Shader.variables.output_black] = output_black / 255.0
-    shader_program[sh_blmod.Shader.variables.output_white] = output_white / 255.0
+    shader_cls = sh_blmod.BLEND_SHADERS.get(blend_mode.lower())
+    if not shader_cls:
+        print(f"Error: Unsupported blend mode '{blend_mode}'. Available modes: {list(sh_blmod.BLEND_SHADERS.keys())}")
+        return
+    
+    try:
+        fbo = session.gl.framebuffer(
+            color_attachments=[session.gl.texture((session.target_size[0], session.target_size[1]), 3)]
+        )
+        fbo.use()
 
-    vbo = session.gl.buffer(session.quad)
-    vao = session.gl.simple_vertex_array(shader_program, 
-                                         vbo,
-                                         sh_blmod.Shader.variables.in_vert,
-                                         sh_blmod.Shader.variables.in_text)
-    session.gl.clear(0.0, 0.0, 0.0, 1.0)
-    vao.render(moderngl.TRIANGLE_STRIP)
-    data = fbo.read(components=3)
-    blend_texture = Image.frombytes('RGB', (session.target_size[0], session.target_size[1]), data)
-    print(f"Baked blend modulate (with texture loading) in {time.time() - start_time:.4f} seconds")
-    blend_texture.show()
+        shader_program = session.gl.program(
+            vertex_shader=shader_cls.vertex_shader,
+            fragment_shader=shader_cls.fragment_shader
+        )
+        texture1 = session.gl.texture(top_img.size, 3, top_img.tobytes())
+        texture2 = session.gl.texture(bottom_img.size, 3, bottom_img.tobytes())
+        texture3 = session.gl.texture(r_image.size, 3, r_image.tobytes())
+        texture1.use(location=0)
+        texture2.use(location=1)
+        texture3.use(location=2)
+        shader_program[shader_cls.variables.topTexture] = 0
+        shader_program[shader_cls.variables.bottomTexture] = 1
+        shader_program[shader_cls.variables.rComponent] = 2
+        shader_program[shader_cls.variables.alpha] = alpha
+        shader_program[shader_cls.variables.input_black] = input_black / 255.0
+        shader_program[shader_cls.variables.input_white] = input_white / 255.0
+        shader_program[shader_cls.variables.output_black] = output_black / 255.0
+        shader_program[shader_cls.variables.output_white] = output_white / 255.0
+
+        vbo = session.gl.buffer(session.quad)
+        vao = session.gl.simple_vertex_array(shader_program, 
+                                            vbo,
+                                            shader_cls.variables.in_vert,
+                                            shader_cls.variables.in_text)
+        session.gl.clear(0.0, 0.0, 0.0, 1.0)
+        vao.render(moderngl.TRIANGLE_STRIP)
+        data = fbo.read(components=3)
+        blend_texture = Image.frombytes('RGB', (session.target_size[0], session.target_size[1]), data)
+        print(f"Baked blend modulate (with texture loading) in {time.time() - start_time:.4f} seconds")
+        blend_texture.show()
+
+        if output_path:
+            session.save_image(blend_texture, output_path)
+    finally:
+        fbo.release()
+        shader_program.release()
+        texture1.release()
+        texture2.release()
+        texture3.release()
+        vbo.release()
+        vao.release()
 
 
 if __name__ == "__main__":
