@@ -121,14 +121,21 @@ class BakeSession:
 
 class VMTSession:
     def __init__(self, base_texture: str,
+                bumpmap: str,
                 base_texture2: str,
-                blendmodul_texture: str):
+                bumpmap2: str,
+                blendmodul_texture: str,
+                output_path: str):
         self.base_texture: Optional[p.Path] = p.Path(base_texture).resolve()
+        self.bumpmap: Optional[p.Path] = p.Path(bumpmap).resolve()
         self.base_texture2: Optional[p.Path] = p.Path(base_texture2).resolve()
+        self.bumpmap2: Optional[p.Path] = p.Path(bumpmap2).resolve()
         self.blendmodul_texture: Optional[p.Path] = p.Path(blendmodul_texture).resolve()
-        self._output_path: Optional[p.Path] = None
+        self._output_path: Optional[p.Path] = p.Path(output_path).resolve()
         self._relative_base_texture: Optional[str] = None
+        self._relative_bumpmap: Optional[str] = None
         self._relative_base_texture2: Optional[str] = None
+        self._relative_bumpmap2: Optional[str] = None
         self._relative_blendmodul_texture: Optional[str] = None
         self.validate_paths()
     
@@ -146,23 +153,23 @@ class VMTSession:
                 setattr(self, f"_relative_{attr}", str(relative_path))
             except (ValueError, IndexError):
                 raise ValueError(f"Texture {attr} path should be included in 'materials/' directory: {path}")
-            # path_str = str(path).replace('\\', '/')
-            # if not 'materials/' in path_str.lower():
-            #     raise ValueError(f"Texture {attr} path should be included in 'materials/': {path}")
-            # relative_path = path_str.split('materials/', 1)[1]
-            # relative_path = relative_path.rsplit('.', 1)[0]  # Remove extension
-            # setattr(self, f"_relative_{attr}", relative_path)
-        # return (self.base_texture.suffix.lower() == ".vtf" and
-        #         self.base_texture2.suffix.lower() == ".vtf" and
-        #         self.blendmodul_texture.suffix.lower() == ".vtf")
-    def __str__(self) -> str:
-        print_str = "VMT Session:\n"
-        print_str += f"  Base Texture: {self.base_texture} (relative: {self._relative_base_texture})\n"
-        print_str += f"  Base Texture 2: {self.base_texture2} (relative: {self._relative_base_texture2})\n"
-        print_str += f"  Blendmodulate Texture: {self.blendmodul_texture} (relative: {self._relative_blendmodul_texture})\n"
-        return print_str
-    # def create_material(self) -> str:
-    #     material = vmt.Material()
+
+    # def __str__(self) -> str:
+    #     print_str = "VMT Session:\n"
+    #     print_str += f"  Base Texture: {self.base_texture} (relative: {self._relative_base_texture})\n"
+    #     print_str += f"  Base Texture 2: {self.base_texture2} (relative: {self._relative_base_texture2})\n"
+    #     print_str += f"  Blendmodulate Texture: {self.blendmodul_texture} (relative: {self._relative_blendmodul_texture})\n"
+    #     return print_str
+    
+    def create_material(self) -> str:
+        material = vmt.Material(shader="WorldVertexTransition")
+        material["$basetexture"] = self._relative_base_texture
+        material["$bumpmap"] = self._relative_bumpmap
+        material["$basetexture2"] = self._relative_base_texture2
+        material["$bumpmap2"] = self._relative_bumpmap2
+        material["$blendmodulatetexture"] = self._relative_blendmodul_texture
+        with open(self._output_path, 'w') as f:
+            material.export(f)
 
 
 @app.command()
@@ -293,25 +300,25 @@ def bake_blendmodulate(
 @app.command()
 def create_vmt(
     base_texture: str = typer.Option(..., "-b", "--base", help="Base texture path (.vtf)"),
+    bumpmap: str = typer.Option(None, "-bm", "--bumpmap", help="Bumpmap texture path (.vtf)"),
     base_texture2: str = typer.Option(..., "-b2", "--base2", help="Second base texture path (.vtf)"),
-    blendmodul_texture: str = typer.Option(None, "-bm", "--blendmodul", help="Blend modulate texture path (.vtf)"),
-    output_path: str = typer.Option("output.vmt", "-o", "--output", help="Output VMT file path")
+    bumpmap2: str = typer.Option(None, "-bm2", "--bumpmap2", help="Second bumpmap texture path (.vtf)"),
+    blendmodul_texture: str = typer.Option(None, "-bl", "--blendmodul", help="Blend modulate texture path (.vtf)"),
+    output_path: str = typer.Option(..., "-o", "--output", help="Output VMT file path")
     ):
     """Create a VMT file for blend modulate material."""
-    session = VMTSession(base_texture, base_texture2, blendmodul_texture)
-    print(session, file=sys.stderr)
-    # material = vmt.Material()
-    # material.set_shader("VertexLitGeneric")
-    # material.set_keyvalue("$basetexture", session._relative_base_texture)
-    # material.set_keyvalue("$basetexture2", session._relative_base_texture2)
-    # material.set_keyvalue("$blendmodulatetexture", session._relative_blendmodul_texture)
-    # material.set_keyvalue("$blendmodulatetype", "0")  # Assuming 0 is the correct type for standard blend modulate
-    # output_vmt_str = material.to_string()
-    # output_path_obj = p.Path(output_path)
-    # output_path_obj.parent.mkdir(parents=True, exist_ok=True)
-    # with open(output_path_obj, 'w') as f:
-    #     f.write(output_vmt_str)
-    # print(f"Created VMT file at {output_path_obj}", file=sys.stderr)
+    if blendmodul_texture is None:
+        try:
+            stdin_bl = sys.stdin.read().strip()
+            stdin_bl = p.Path(stdin_bl).resolve()
+            blendmodul_texture = str(stdin_bl)
+        except Exception as e:
+            print(f"Incorrect image given: {e}")
+            return
+    session = VMTSession(base_texture, bumpmap, base_texture2, bumpmap2, blendmodul_texture, output_path)
+    # print(session, file=sys.stderr)
+    session.create_material()
+
 
 if __name__ == "__main__":
     app()
