@@ -32,9 +32,14 @@ class BakeSession:
                         1.0,  1.0, 1.0, 1.0,
                     ], dtype='f4')
 
-
     def convert_colour_space(self, image: Image):
-        """Convert image to RGBA, handling 16-bit and grayscale images efficiently."""
+        """Convert image to RGB, handling 16-bit and grayscale images.
+
+        Args:
+            image (PIL.Image): The image to convert.
+        Returns:
+            PIL.Image: The converted image in RGB mode.
+        """
         im_arr = np.array(image)
         
         # Handle 16-bit images
@@ -48,8 +53,17 @@ class BakeSession:
         
         return image
 
-
     def load_image(self, file_path: str) -> Image:
+        """Load an image from the specified file path, handling VTF and also VTFs from VPK archives.
+        VTFs inside VPKs must be specified using the format: 'path/to/archive.vpk:internal/path/to/texture.vtf
+        
+        Args:
+            file_path (str): The path to the image file.
+        Returns:
+            PIL.Image: The loaded image.
+        Raises:
+            Exception: If the image cannot be loaded or is not supported.
+        """
         start_time = time.time()
         try:
             img = Image.open(file_path)
@@ -82,9 +96,16 @@ class BakeSession:
         print(f"Converted colour space in {time.time() - start_time:.4f} seconds", file=sys.stderr)
         return img
 
-
     def create_r_component(self, red: str) -> Image:
-        """Create an image with only the red component from a color string."""
+        """Create an image with only the red component from a color string or given image
+
+        Args:
+            red (str): Hex color string (e.g., '#FF0000') or path to an image file.
+        Returns:
+            PIL.Image: Image with only the red component.
+        Raises:
+            Exception: If the red component image cannot be created. Then defaults to black.
+        """
         self.target_size = self.target_size or self.img_top.size
         if red.startswith('#'):
             color = ImageColor.getcolor(red, "RGB")
@@ -99,6 +120,12 @@ class BakeSession:
             return r_image
     
     def save_image(self, image: Image, file_path: str):
+        """Save the image to the specified file path, handling VTF format if needed.
+
+        Args:
+            image (PIL.Image): The image to save.
+            file_path (str): The path where to save the image.
+        """
         file_path = p.Path(file_path)
         file_path.parent.mkdir(parents=True, exist_ok=True)
         if file_path.suffix.lower() == '.vtf':
@@ -120,12 +147,34 @@ class BakeSession:
 
 
 class VMTSession:
+    """Session for creating VMT files with blend modulate for testing purposes.
+
+    Attributes:
+        base_texture: Path to the base texture (.vtf).
+        bumpmap: Path to the bumpmap texture (.vtf).
+        base_texture2: Path to the second base texture (.vtf).
+        bumpmap2: Path to the second bumpmap texture (.vtf).
+        blendmodul_texture: Path to the blend modulate texture (.vtf).
+        output_path: Path to save the generated VMT file.
+    
+    """
     def __init__(self, base_texture: str,
                 bumpmap: str,
                 base_texture2: str,
                 bumpmap2: str,
                 blendmodul_texture: str,
                 output_path: str):
+        """Initialize the VMT session with texture paths and output path.
+
+        Args:
+            base_texture (str): Path to the base texture (.vtf).
+            bumpmap (str): Path to the bumpmap texture (.vtf).
+            base_texture2 (str): Path to the second base texture (.vtf).
+            bumpmap2 (str): Path to the second bumpmap texture (.vtf).
+            blendmodul_texture (str): Path to the blend modulate texture (.vtf).
+            output_path (str): Path to save the generated VMT file.
+        """
+
         self.base_texture: Optional[p.Path] = p.Path(base_texture).resolve()
         self.bumpmap: Optional[p.Path] = p.Path(bumpmap).resolve()
         self.base_texture2: Optional[p.Path] = p.Path(base_texture2).resolve()
@@ -161,7 +210,7 @@ class VMTSession:
     #     print_str += f"  Blendmodulate Texture: {self.blendmodul_texture} (relative: {self._relative_blendmodul_texture})\n"
     #     return print_str
     
-    def create_material(self) -> str:
+    def create_material(self):
         material = vmt.Material(shader="WorldVertexTransition")
         material["$basetexture"] = self._relative_base_texture
         material["$bumpmap"] = self._relative_bumpmap
@@ -176,6 +225,7 @@ class VMTSession:
 def show_img(
     file_path: str = typer.Option(None, "-p", "--path", help="Path to the image file. If not specified, will try reading from stdin.")):
     """Load and display image information."""
+
     session = BakeSession()
     if file_path is None:
         try:
@@ -196,6 +246,7 @@ def debug_red_component(
     red: str = typer.Option("#000000", "-r", "--red", help="Red component color or image path"),
     target_size: Union[None, str] = typer.Option(None, "-s", "--size", help="Target size as WIDTHxHEIGHT. None defaults to size of the top image.")):
     """Create and display the red component image."""
+
     session = BakeSession()
     top_img = session.load_image(top_img_path)
     session.img_top = top_img
@@ -222,7 +273,8 @@ def bake_blendmodulate(
     output_black: int = typer.Option(0, help="Output black level (0-255)."),
     output_white: int = typer.Option(255, help="Output white level (0-255).")
     ):
-    """Bake blend modulate effect and save the output image."""
+    """Bake blend modulate texture and save the output image."""
+
     start_time = time.time()
     session = BakeSession()
     top_img = session.load_image(top_img_path)
@@ -307,6 +359,7 @@ def create_vmt(
     output_path: str = typer.Option(..., "-o", "--output", help="Output VMT file path")
     ):
     """Create a VMT file for blend modulate material."""
+    
     if blendmodul_texture is None:
         try:
             stdin_bl = sys.stdin.read().strip()
