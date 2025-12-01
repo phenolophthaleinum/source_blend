@@ -1,16 +1,22 @@
-import numpy as np
-from PIL import Image, ImageColor
-import typer
-import time
-import srctools.vtf as vtf
-import srctools.vpk as vpk
-import srctools.vmt as vmt
-from typing import Union, Optional
-import gl_blendmodulate_bake as sh_blmod
-import moderngl
 import pathlib as p
 import sys
 import io
+import time
+from typing import Optional
+
+import numpy as np
+import typer
+import srctools.vtf as vtf
+import srctools.vpk as vpk
+import srctools.vmt as vmt
+import moderngl
+from PIL import Image, ImageColor
+
+import gl_shaders as sh
+
+
+COLOUR_8_MAX = 255
+COLOUR_16_MAX = 65535
 
 
 app = typer.Typer()
@@ -31,6 +37,14 @@ class BakeSession:
                         -1.0,  1.0, 0.0, 1.0,
                         1.0,  1.0, 1.0, 1.0,
                     ], dtype='f4')
+    
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self.gl:
+            self.gl.release()
+        return False
 
     def convert_colour_space(self, image: Image):
         """Convert image to RGB, handling 16-bit and grayscale images.
@@ -43,8 +57,8 @@ class BakeSession:
         im_arr = np.array(image)
         
         # Handle 16-bit images
-        if im_arr.dtype == np.uint16 or im_arr.max() > 255:
-            im_arr = (im_arr / 65535.0 * 255).astype(np.uint8)
+        if im_arr.dtype == np.uint16 or im_arr.max() > COLOUR_8_MAX:
+            im_arr = (im_arr / COLOUR_16_MAX * COLOUR_8_MAX).astype(np.uint8)
             image = Image.fromarray(im_arr, mode=image.mode)
         
         # Convert to RGBA if needed (handles grayscale efficiently)
@@ -244,7 +258,7 @@ def show_img(
 def debug_red_component(
     top_img_path: str = typer.Option(..., "-t", "--top", help="Top image path"),
     red: str = typer.Option("#000000", "-r", "--red", help="Red component color or image path"),
-    target_size: Union[None, str] = typer.Option(None, "-s", "--size", help="Target size as WIDTHxHEIGHT. None defaults to size of the top image.")):
+    target_size: Optional[str] = typer.Option(None, "-s", "--size", help="Target size as WIDTHxHEIGHT. None defaults to size of the top image.")):
     """Create and display the red component image."""
 
     session = BakeSession()
@@ -260,102 +274,105 @@ def debug_red_component(
 
 @app.command()
 def bake_blendmodulate(
-    top_img_path: str = typer.Option(..., "-t", "--top", help="Top image path"),
-    bottom_img_path: str = typer.Option(..., "-b", "--bottom", help="Bottom image path"),
-    red: str = typer.Option("#000000", "-r", "--red", help="Red component color or image path"),
+    top_img_path: str = typer.Option(..., "-t", "--top", help="Top image path. Can be in an image format supported by PIL or a VTF file. VTF can be loaded from VPK using the format 'path/to/archive.vpk:internal/path/to/texture.vtf'"),
+    bottom_img_path: str = typer.Option(..., "-b", "--bottom", help="Bottom image path. Can be in an image format supported by PIL or a VTF file (also loaded from VPK). "),
+    red: str = typer.Option("#000000", "-r", "--red", help="Red component color or image path. Can be a hex color string (e.g., '#FF0000') or a path to an image file (PIL supported, VTF/VTF from VPK)."),
     # output_path: str = typer.Option("output.png", "-o", "--output", help="Output image path"),
-    target_size: Union[None, str] = typer.Option(None, "-s", "--size", help="Target size as WIDTHxHEIGHT. None defaults to size of the top image."),
-    blend_mode: str = typer.Option("substract", "-m", "--mode", help="Blend mode to use."),
-    output_path: Union[None, str] = typer.Option(None, "-o", "--output", help="Output image path. If not specified, the image will not be saved."),
+    target_size: Optional[str] = typer.Option(None, "-s", "--size", help="Target size as WIDTHxHEIGHT. None defaults to size of the top image."),
+    blend_mode: str = typer.Option("substract", "-m", "--mode", help=f"Blend mode to use. Available modes: {', '.join(sh.BLEND_SHADERS.keys())}"),
+    output_path: Optional[str] = typer.Option(None, "-o", "--output", help="Output image path. If not specified, the image will not be saved."),
     alpha: float = typer.Option(0.5, "-a", "--alpha", help="Alpha value for blending."),
     input_black: int = typer.Option(0, help="Input black level (0-255)."),
     input_white: int = typer.Option(255, help="Input white level (0-255)."),
     output_black: int = typer.Option(0, help="Output black level (0-255)."),
-    output_white: int = typer.Option(255, help="Output white level (0-255).")
+    output_white: int = typer.Option(255, help="Output white level (0-255)."),
+    preview: bool = typer.Option(False, "-p", "--preview", help="Open the output image automatically.")
     ):
     """Bake blend modulate texture and save the output image."""
 
     start_time = time.time()
-    session = BakeSession()
-    top_img = session.load_image(top_img_path)
-    bottom_img = session.load_image(bottom_img_path)
-    session.img_top = top_img
-    session.img_bottom = bottom_img
-    if target_size:
-        width, height = map(int, target_size.lower().split('x'))
-        session.target_size = (width, height)
-    r_image = session.create_r_component(red)
-    session.r_component = r_image
+    with BakeSession() as session:
+        top_img = session.load_image(top_img_path)
+        bottom_img = session.load_image(bottom_img_path)
+        session.img_top = top_img
+        session.img_bottom = bottom_img
+        if target_size:
+            width, height = map(int, target_size.lower().split('x'))
+            session.target_size = (width, height)
+        r_image = session.create_r_component(red)
+        session.r_component = r_image
 
-    is_piped = not sys.stdout.isatty()
-    
-    print(session.img_top.size, session.img_bottom.size, session.r_component.size, file=sys.stderr)
-    print(session.img_top.mode, session.img_bottom.mode, session.r_component.mode, file=sys.stderr)
+        is_piped = not sys.stdout.isatty()
+        
+        # print(session.img_top.size, session.img_bottom.size, session.r_component.size, file=sys.stderr)
+        # print(session.img_top.mode, session.img_bottom.mode, session.r_component.mode, file=sys.stderr)
 
-    shader_cls = sh_blmod.BLEND_SHADERS.get(blend_mode.lower())
-    if not shader_cls:
-        print(f"Error: Unsupported blend mode '{blend_mode}'. Available modes: {list(sh_blmod.BLEND_SHADERS.keys())}", file=sys.stderr)
-        return
-    
-    try:
-        fbo = session.gl.framebuffer(
-            color_attachments=[session.gl.texture((session.target_size[0], session.target_size[1]), 3)]
-        )
-        fbo.use()
+        shader_cls = sh.BLEND_SHADERS.get(blend_mode.lower())
+        if not shader_cls:
+            print(f"Error: Unsupported blend mode '{blend_mode}'. Available modes: {list(sh.BLEND_SHADERS.keys())}", file=sys.stderr)
+            return
+        
+        try:
+            fbo = session.gl.framebuffer(
+                color_attachments=[session.gl.texture((session.target_size[0], session.target_size[1]), 3)]
+            )
+            fbo.use()
 
-        shader_program = session.gl.program(
-            vertex_shader=shader_cls.vertex_shader,
-            fragment_shader=shader_cls.fragment_shader
-        )
-        texture1 = session.gl.texture(top_img.size, 3, top_img.tobytes())
-        texture2 = session.gl.texture(bottom_img.size, 3, bottom_img.tobytes())
-        texture3 = session.gl.texture(r_image.size, 3, r_image.tobytes())
-        texture1.use(location=0)
-        texture2.use(location=1)
-        texture3.use(location=2)
-        shader_program[shader_cls.variables.topTexture] = 0
-        shader_program[shader_cls.variables.bottomTexture] = 1
-        shader_program[shader_cls.variables.rComponent] = 2
-        shader_program[shader_cls.variables.alpha] = alpha
-        shader_program[shader_cls.variables.input_black] = input_black / 255.0
-        shader_program[shader_cls.variables.input_white] = input_white / 255.0
-        shader_program[shader_cls.variables.output_black] = output_black / 255.0
-        shader_program[shader_cls.variables.output_white] = output_white / 255.0
+            shader_program = session.gl.program(
+                vertex_shader=shader_cls.vertex_shader,
+                fragment_shader=shader_cls.fragment_shader
+            )
+            texture1 = session.gl.texture(top_img.size, 3, top_img.tobytes())
+            texture2 = session.gl.texture(bottom_img.size, 3, bottom_img.tobytes())
+            texture3 = session.gl.texture(r_image.size, 3, r_image.tobytes())
+            texture1.use(location=0)
+            texture2.use(location=1)
+            texture3.use(location=2)
+            shader_program[shader_cls.variables.topTexture] = 0
+            shader_program[shader_cls.variables.bottomTexture] = 1
+            shader_program[shader_cls.variables.rComponent] = 2
+            shader_program[shader_cls.variables.alpha] = alpha
+            shader_program[shader_cls.variables.input_black] = input_black / COLOUR_8_MAX
+            shader_program[shader_cls.variables.input_white] = input_white / COLOUR_8_MAX
+            shader_program[shader_cls.variables.output_black] = output_black / COLOUR_8_MAX
+            shader_program[shader_cls.variables.output_white] = output_white / COLOUR_8_MAX
 
-        vbo = session.gl.buffer(session.quad)
-        vao = session.gl.simple_vertex_array(shader_program, 
-                                            vbo,
-                                            shader_cls.variables.in_vert,
-                                            shader_cls.variables.in_text)
-        session.gl.clear(0.0, 0.0, 0.0, 1.0)
-        vao.render(moderngl.TRIANGLE_STRIP)
-        data = fbo.read(components=3)
-        blend_texture = Image.frombytes('RGB', (session.target_size[0], session.target_size[1]), data)
-        print(f"Baked blend modulate (with texture loading) in {time.time() - start_time:.4f} seconds", file=sys.stderr)
-        blend_texture.show()
+            vbo = session.gl.buffer(session.quad)
+            vao = session.gl.simple_vertex_array(shader_program, 
+                                                vbo,
+                                                shader_cls.variables.in_vert,
+                                                shader_cls.variables.in_text)
+            session.gl.clear(0.0, 0.0, 0.0, 1.0)
+            vao.render(moderngl.TRIANGLE_STRIP)
+            data = fbo.read(components=3)
+            blend_texture = Image.frombytes('RGB', (session.target_size[0], session.target_size[1]), data)
+            print(f"Baked blend modulate (with texture loading) in {time.time() - start_time:.4f} seconds", file=sys.stderr)
 
-        if output_path:
-            session.save_image(blend_texture, output_path)
-            if is_piped:
-                #save output path to stdout
-                print(output_path, file=sys.stdout)
-    finally:
-        fbo.release()
-        shader_program.release()
-        texture1.release()
-        texture2.release()
-        texture3.release()
-        vbo.release()
-        vao.release()
+            if preview:
+                blend_texture.show()
+
+            if output_path:
+                session.save_image(blend_texture, output_path)
+                if is_piped:
+                    #save output path to stdout
+                    print(output_path, file=sys.stdout)
+        finally:
+            fbo.release()
+            shader_program.release()
+            texture1.release()
+            texture2.release()
+            texture3.release()
+            vbo.release()
+            vao.release()
 
 
 @app.command()
 def create_vmt(
-    base_texture: str = typer.Option(..., "-b", "--base", help="Base texture path (.vtf)"),
-    bumpmap: str = typer.Option(None, "-bm", "--bumpmap", help="Bumpmap texture path (.vtf)"),
-    base_texture2: str = typer.Option(..., "-b2", "--base2", help="Second base texture path (.vtf)"),
-    bumpmap2: str = typer.Option(None, "-bm2", "--bumpmap2", help="Second bumpmap texture path (.vtf)"),
-    blendmodul_texture: str = typer.Option(None, "-bl", "--blendmodul", help="Blend modulate texture path (.vtf)"),
+    base_texture: str = typer.Option(..., "-b", "--base", help="Base texture path (.vtf). Can be a relative path from 'materials/' directory, also from VPK without passing .vpk path."),
+    bumpmap: str = typer.Option(None, "-bm", "--bumpmap", help="Bumpmap texture path (.vtf). Can be a relative path from 'materials/' directory, also from VPK without passing .vpk path."),
+    base_texture2: str = typer.Option(..., "-b2", "--base2", help="Second base texture path (.vtf). Can be a relative path from 'materials/' directory, also from VPK without passing .vpk path."),
+    bumpmap2: str = typer.Option(None, "-bm2", "--bumpmap2", help="Second bumpmap texture path (.vtf). Can be a relative path from 'materials/' directory, also from VPK without passing .vpk path."),
+    blendmodul_texture: str = typer.Option(None, "-bl", "--blendmodul", help="Blend modulate texture path (.vtf). Can be a relative path from 'materials/' directory, also from VPK without passing .vpk path."),
     output_path: str = typer.Option(..., "-o", "--output", help="Output VMT file path")
     ):
     """Create a VMT file for blend modulate material."""
