@@ -17,7 +17,7 @@ class ShaderVariables:
     output_white: ClassVar[str] = "output_white"
 
 
-class SubstractShader:
+class SubtractShader:
     """OpenGL shader for blend modulate baking."""
     
     variables = ShaderVariables
@@ -179,6 +179,6 @@ void main() {
 
 
 BLEND_SHADERS = {
-    "substract": SubstractShader,
+    "subtract": SubtractShader,
     "divide": DivideShader,
 }

@@ -279,7 +279,7 @@ def bake_blendmodulate(
     red: str = typer.Option("#000000", "-r", "--red", help="Red component color or image path. Can be a hex color string (e.g., '#FF0000') or a path to an image file (PIL supported, VTF/VTF from VPK)."),
     # output_path: str = typer.Option("output.png", "-o", "--output", help="Output image path"),
     target_size: Optional[str] = typer.Option(None, "-s", "--size", help="Target size as WIDTHxHEIGHT. None defaults to size of the top image."),
-    blend_mode: str = typer.Option("substract", "-m", "--mode", help=f"Blend mode to use. Available modes: {', '.join(sh.BLEND_SHADERS.keys())}"),
+    blend_mode: str = typer.Option("subtract", "-m", "--mode", help=f"Blend mode to use. Available modes: {', '.join(sh.BLEND_SHADERS.keys())}"),
     output_path: Optional[str] = typer.Option(None, "-o", "--output", help="Output image path. If not specified, the image will not be saved."),
     alpha: float = typer.Option(0.5, "-a", "--alpha", help="Alpha value for blending."),
     input_black: int = typer.Option(0, help="Input black level (0-255)."),
