@@ -3,7 +3,8 @@ This was my private project to help me create easier and iterate much faster wit
 
 If you got any idea to improve it please make a pull request according to Contributing section or just make an issue with an idea.
 
-<video src="readme_static/source_blend_ffmpeg.mp4" controls></video>
+https://github.com/user-attachments/assets/3da96c2d-119f-4b9c-9bee-14b0c52aa951
+
 
 ## Installation
 You can download precompiled single file executable for Windows from the release section. Executable is compiled using [pyinstaller](https://github.com/pyinstaller/pyinstaller).
