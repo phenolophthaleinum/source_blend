@@ -7,7 +7,7 @@ https://github.com/user-attachments/assets/3da96c2d-119f-4b9c-9bee-14b0c52aa951
 
 
 ## Installation
-You can download precompiled single file executable for Windows from the release section. Executable is compiled using [pyinstaller](https://github.com/pyinstaller/pyinstaller).
+You can download precompiled single file executable for Windows from the [release section](https://github.com/phenolophthaleinum/source_blend/releases/tag/1.0.0). Executable is compiled using [pyinstaller](https://github.com/pyinstaller/pyinstaller).
 
 You can also download the source code and run it with your local python installation. Dependencies has to be installed - you can do it manually or create separate virual environment (recommended):
 ```
