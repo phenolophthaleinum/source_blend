@@ -1,7 +1,7 @@
 ## About
 This was my private project to help me create easier and iterate much faster with the creation of blend modulate textures for Source Engine games. Decied to release it, maybe someone will find it helpful. 
 
-If you got any idea to improve it please make a pull request according to Contributing section or just make an issue with an idea.
+If you got any idea to improve it please make a pull request according to [Contributing](#contributing) section or just make an issue with an idea.
 
 https://github.com/user-attachments/assets/3da96c2d-119f-4b9c-9bee-14b0c52aa951
 
